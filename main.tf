@@ -17,39 +17,34 @@ resource "tls_private_key" "argocd" {
 }
 
 data "github_repository" "x" {
-  for_each = { for i in var.application_parameters : i.repository => i }
-  name     = each.value.repository
+  name = var.application_parameters.repository
 }
 
 resource "github_repository_deploy_key" "argocd_deploy_key" {
-  for_each   = data.github_repository.x
   title      = "ArgoCD"
-  repository = each.value.name
+  repository = data.github_repository.x.name
   key        = tls_private_key.argocd.public_key_openssh
   read_only  = "true"
 }
 
 resource "argocd_repository" "x" {
-  for_each        = data.github_repository.x
-  name            = each.value.name
-  repo            = "git@github.com:${each.value.full_name}"
+  name            = data.github_repository.x.name
+  repo            = "git@github.com:${data.github_repository.x.full_name}"
   username        = "git"
   ssh_private_key = tls_private_key.argocd.private_key_openssh
 }
 
 # ArgoCD Application define
 locals {
-  github_owner = split("/", [for k, v in element(data.github_repository.x[*], 0) : v.full_name][0])[0]
+  github_owner = split("/",data.github_repository.x.full_name)[0]
   flatten_application_parameter = distinct(flatten([
-    for application_parameter in var.application_parameters : [
-      for application in application_parameter.applications : {
-        name : application.name
-        namespace : application.namespace
-        repository : application_parameter.repository
-        path : application.path
-        value_files : application.value_files
-      }
-    ]
+    for application in var.application_parameters : {
+      name : application.name
+      namespace : application.namespace
+      repository : var.application_parameters.repository
+      path : application.path
+      value_files : application.value_files
+    }
   ]))
 }
 
@@ -75,10 +70,6 @@ resource "argocd_application" "x" {
     destination {
       server    = "https://kubernetes.default.svc"
       namespace = each.value.namespace
-    }
-
-    sync_policy {
-      sync_options = ["CreateNamespace=true"]
     }
   }
 }
